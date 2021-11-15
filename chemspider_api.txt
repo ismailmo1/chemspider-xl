@@ -1,0 +1,114 @@
+Option Explicit
+Public Const vbDoubleQuote As String = """"
+ 
+Public Sub chemSpider1(ByVal control As IRibbonControl)
+    Dim imgText, recordID, queryID As String
+    Dim b64Str, b64PicPath As String
+    Dim parsedImg As Dictionary
+    Dim req As New MSXML2.ServerXMLHTTP60
+    Dim searchStr As String
+    Dim detailsDict As New Dictionary
+    searchStr = InputBox("Enter chemical name to search:", "ChemSpider Search")
+    If searchStr = "" Then Exit Sub
+    'get queryID
+    queryID = getQueryID(searchStr)
+    'get recordID
+    recordID = getRecordID(queryID)
+    If recordID = "" Then
+        MsgBox prompt:="no results found for " & searchStr & "!", Title:="sad times :("
+        Exit Sub
+    End If
+    
+    'get img
+    req.Open "GET", "https://api.rsc.org/compounds/v1/records/" & recordID & "/image"
+    req.setRequestHeader "apikey", Keys.APIKEY
+    req.send
+    imgText = req.responseText
+    
+    'parse json into dict
+    Set parsedImg = JsonConverter.ParseJson(imgText)
+    b64PicPath = Environ("TEMP") & "\b64pic.png"
+    WriteByteArrayToFile DecodeBase64(parsedImg("image")), b64PicPath
+    
+    'get details
+    req.Open "GET", "https://api.rsc.org/compounds/v1/records/" & recordID & "/details?fields=SMILES,Formula,CommonName,NominalMass"
+    req.setRequestHeader "apikey", Keys.APIKEY
+    req.send
+    Set detailsDict = JsonConverter.ParseJson(req.responseText)
+    
+    
+         With chemSpiderImg.Image1
+            .Height = 150
+            .Width = .Height
+            .PictureSizeMode = 3
+            .Picture = LoadPictureGDI(b64PicPath)
+            .Left = 20
+            
+        End With
+        'Debug.Print Application.Width; Application.Left
+        With chemSpiderImg
+            .Height = 250
+            .Width = 200
+            .Caption = detailsDict("commonName")
+            .Label1.Width = 250
+            .Label1.Caption = "NomMass:" & vbTab & detailsDict("nominalMass") & vbCrLf & "Formula:" & vbTab & detailsDict("formula")
+            .Left = Application.Left + (0.5 * Application.Width) - (0.5 * .Width)
+            .Top = Application.Top + (0.5 * Application.Height) - (0.5 * .Height)
+            .Show
+        End With
+    
+End Sub
+
+Public Function getRecordID(queryID) As String
+
+    Dim req As New MSXML2.ServerXMLHTTP60
+    Dim respDict As New Dictionary
+    Dim d, a, i
+    
+    'create api request
+    req.Open "GET", "https://api.rsc.org/compounds/v1/filter/" & queryID & "/results"
+    req.setRequestHeader "apikey", Keys.APIKEY
+    req.send
+    Set respDict = JsonConverter.ParseJson(req.responseText)
+    
+    On Error GoTo noresults
+    getRecordID = JsonConverter.ParseJson(req.responseText)("results")(1)
+    Exit Function
+    
+noresults:
+    getRecordID = ""
+End Function
+
+Public Function getQueryID(nameSearchString)
+    Dim req As New MSXML2.ServerXMLHTTP60
+    Dim requestBody As String
+    Dim queryID As Dictionary
+    requestBody = "{" & vbDoubleQuote & "name" & vbDoubleQuote & _
+    ":" & vbDoubleQuote & nameSearchString & vbDoubleQuote & "}"
+    
+    'create api request
+    req.Open "POST", "https://api.rsc.org/compounds/v1/filter/name"
+    req.setRequestHeader "apikey", Keys.APIKEY
+    req.send requestBody
+    getQueryID = JsonConverter.ParseJson(req.responseText)("queryId")
+    
+
+End Function
+
+'Decode Base64 string into a byte array
+Public Function DecodeBase64(ByVal Base64String As String) As Byte()
+    With CreateObject("MSXML2.DOMDocument").createElement("b64")
+        .DataType = "bin.base64"
+        .Text = Base64String
+        DecodeBase64 = .nodeTypedValue
+    End With
+End Function
+
+'Take a byte array and write to png file
+Public Sub WriteByteArrayToFile(FileData() As Byte, ByVal FilePath As String)
+    Dim FileNumber As Long: FileNumber = FreeFile
+    Open FilePath For Binary Access Write As #FileNumber
+    Put #FileNumber, 1, FileData
+    Close #FileNumber
+End Sub
+
